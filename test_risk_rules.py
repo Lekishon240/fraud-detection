@@ -1,52 +1,117 @@
 from __future__ import annotations
 
-from typing import Dict
+import pytest
+
+from risk_rules import label_risk, score_transaction
 
 
-def score_transaction(tx: Dict) -> int:
-    """Return a simple fraud risk score from 0 to 100."""
-    score = 0
-
-    # Flaw 1: High-risk device scores are rewarded instead of penalized.
-    if tx["device_risk_score"] >= 70:
-        score -= 25
-    elif tx["device_risk_score"] >= 40:
-        score += 10
-
-    # Flaw 2: International transactions reduce risk instead of increasing it.
-    if tx["is_international"] == 1:
-        score -= 15
-
-    # High purchase amounts should matter.
-    if tx["amount_usd"] >= 1000:
-        score += 25
-    elif tx["amount_usd"] >= 500:
-        score += 10
-
-    # Flaw 3: High velocity is handled backwards.
-    if tx["velocity_24h"] >= 6:
-        score -= 20
-    elif tx["velocity_24h"] >= 3:
-        score += 5
-
-    # Prior login failures can signal account takeover.
-    if tx["failed_logins_24h"] >= 5:
-        score += 20
-    elif tx["failed_logins_24h"] >= 2:
-        score += 10
-
-    # Flaw 4: Prior chargeback history wrongly reduces risk.
-    if tx["prior_chargebacks"] >= 2:
-        score -= 20
-    elif tx["prior_chargebacks"] == 1:
-        score -= 5
-
-    return max(0, min(score, 100))
+def base_tx(**overrides):
+    tx = {
+        "device_risk_score": 0,
+        "is_international": 0,
+        "amount_usd": 0,
+        "velocity_24h": 0,
+        "failed_logins_24h": 0,
+        "prior_chargebacks": 0,
+    }
+    tx.update(overrides)
+    return tx
 
 
-def label_risk(score: int) -> str:
-    if score >= 60:
-        return "high"
-    if score >= 30:
-        return "medium"
-    return "low"
+class TestDeviceRisk:
+    def test_high_device_risk_adds_25(self):
+        assert score_transaction(base_tx(device_risk_score=70)) == 25
+
+    def test_medium_device_risk_adds_10(self):
+        assert score_transaction(base_tx(device_risk_score=40)) == 10
+
+    def test_low_device_risk_adds_nothing(self):
+        assert score_transaction(base_tx(device_risk_score=39)) == 0
+
+
+class TestInternational:
+    def test_international_adds_15(self):
+        assert score_transaction(base_tx(is_international=1)) == 15
+
+    def test_domestic_adds_nothing(self):
+        assert score_transaction(base_tx(is_international=0)) == 0
+
+
+class TestAmount:
+    def test_large_amount_adds_25(self):
+        assert score_transaction(base_tx(amount_usd=1000)) == 25
+
+    def test_medium_amount_adds_10(self):
+        assert score_transaction(base_tx(amount_usd=500)) == 10
+
+    def test_small_amount_adds_nothing(self):
+        assert score_transaction(base_tx(amount_usd=499)) == 0
+
+
+class TestVelocity:
+    def test_high_velocity_adds_20(self):
+        assert score_transaction(base_tx(velocity_24h=6)) == 20
+
+    def test_medium_velocity_adds_5(self):
+        assert score_transaction(base_tx(velocity_24h=3)) == 5
+
+    def test_low_velocity_adds_nothing(self):
+        assert score_transaction(base_tx(velocity_24h=2)) == 0
+
+
+class TestFailedLogins:
+    def test_many_failed_logins_adds_20(self):
+        assert score_transaction(base_tx(failed_logins_24h=5)) == 20
+
+    def test_some_failed_logins_adds_10(self):
+        assert score_transaction(base_tx(failed_logins_24h=2)) == 10
+
+    def test_few_failed_logins_adds_nothing(self):
+        assert score_transaction(base_tx(failed_logins_24h=1)) == 0
+
+
+class TestPriorChargebacks:
+    def test_multiple_chargebacks_adds_20(self):
+        assert score_transaction(base_tx(prior_chargebacks=2)) == 20
+
+    def test_one_chargeback_adds_5(self):
+        assert score_transaction(base_tx(prior_chargebacks=1)) == 5
+
+    def test_no_chargebacks_adds_nothing(self):
+        assert score_transaction(base_tx(prior_chargebacks=0)) == 0
+
+
+class TestScoreBounds:
+    def test_score_clamped_at_100(self):
+        tx = base_tx(
+            device_risk_score=70,
+            is_international=1,
+            amount_usd=1000,
+            velocity_24h=6,
+            failed_logins_24h=5,
+            prior_chargebacks=2,
+        )
+        assert score_transaction(tx) == 100
+
+    def test_clean_transaction_scores_zero(self):
+        assert score_transaction(base_tx()) == 0
+
+
+class TestLabelRisk:
+    def test_score_60_is_high(self):
+        assert label_risk(60) == "high"
+
+    def test_score_100_is_high(self):
+        assert label_risk(100) == "high"
+
+    def test_score_30_is_medium(self):
+        assert label_risk(30) == "medium"
+
+    def test_score_59_is_medium(self):
+        assert label_risk(59) == "medium"
+
+    def test_score_0_is_low(self):
+        assert label_risk(0) == "low"
+
+    def test_score_29_is_low(self):
+        assert label_risk(29) == "low"
