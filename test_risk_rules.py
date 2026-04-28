@@ -22,6 +22,9 @@ class TestDeviceRisk:
     def test_high_device_risk_adds_25(self):
         assert score_transaction(base_tx(device_risk_score=70)) == 25
 
+    def test_device_risk_just_below_high_threshold_adds_10(self):
+        assert score_transaction(base_tx(device_risk_score=69)) == 10
+
     def test_medium_device_risk_adds_10(self):
         assert score_transaction(base_tx(device_risk_score=40)) == 10
 
@@ -52,6 +55,9 @@ class TestVelocity:
     def test_high_velocity_adds_20(self):
         assert score_transaction(base_tx(velocity_24h=6)) == 20
 
+    def test_velocity_just_below_high_threshold_adds_5(self):
+        assert score_transaction(base_tx(velocity_24h=5)) == 5
+
     def test_medium_velocity_adds_5(self):
         assert score_transaction(base_tx(velocity_24h=3)) == 5
 
@@ -62,6 +68,9 @@ class TestVelocity:
 class TestFailedLogins:
     def test_many_failed_logins_adds_20(self):
         assert score_transaction(base_tx(failed_logins_24h=5)) == 20
+
+    def test_failed_logins_just_below_high_threshold_adds_10(self):
+        assert score_transaction(base_tx(failed_logins_24h=4)) == 10
 
     def test_some_failed_logins_adds_10(self):
         assert score_transaction(base_tx(failed_logins_24h=2)) == 10
